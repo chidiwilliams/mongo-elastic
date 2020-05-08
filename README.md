@@ -12,9 +12,10 @@ Stream Mongo to Elasticsearch. mongo-elastic syncs data from MongoDB to Elastics
 
 - [x] Parse config
 
-- [ ] Connect to Mongo
+- [x] Connect to Mongo
+    - What happens if database, collection, field on config doesn't exist? Ignore
 
-- [ ] Connect to Elastic
+- [x] Connect to Elastic
 
 - [ ] Initial Mongo dump (how to determine where to start dump?)
 

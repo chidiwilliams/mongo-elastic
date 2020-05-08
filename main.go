@@ -1,43 +1,54 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
+	"time"
 
-	"gopkg.in/yaml.v2"
+	"github.com/olivere/elastic"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
-
-type config struct {
-	MongoURL   string `yaml:"mongoURL"`
-	ElasticURL string `yaml:"elasticURL"`
-	Databases  []struct {
-		Name        string `yaml:"name"`
-		Collections []struct {
-			Name   string `yaml:"name"`
-			Fields []struct {
-				Name string `yaml:"name"`
-			} `yaml:"fields"`
-		} `yaml:"collections"`
-	} `yaml:"databases"`
-}
 
 func main() {
 	configPtr := flag.String("config", "config.yaml", "Configuration file")
 	flag.Parse()
 
-	c := config{}
-	err := parseConfig(*configPtr, &c)
+	conf := config{}
+	err := parseConfig(*configPtr, &conf)
 	if err != nil {
 		log.Fatal(fmt.Errorf("error parsing config file: %w", err))
 	}
+
+	log.Println("config:", conf)
+
+	mongoClient, err := connectMongo(conf.MongoURL)
+	if err != nil {
+		log.Fatal(fmt.Errorf("error connecting to mongo: %w", err))
+	}
+
+	log.Println("connected to mongoDB")
+
+	elasticClient, err := connectElastic(conf.ElasticURL)
+	if err != nil {
+		log.Fatal(fmt.Errorf("error connecting to elastic: %w", err))
+	}
+
+	log.Println("connected to elastic")
+
+	_, _ = mongoClient, elasticClient
 }
 
-func parseConfig(filePath string, config *config) error {
-	b, err := ioutil.ReadFile(filePath)
-	if err != nil {
-		return err
-	}
-	return yaml.Unmarshal(b, config)
+func connectElastic(url string) (*elastic.Client, error) {
+	return elastic.NewClient(
+		elastic.SetURL(url),
+		elastic.SetSniff(false),
+	)
+}
+
+func connectMongo(url string) (*mongo.Client, error) {
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	return mongo.Connect(ctx, options.Client().ApplyURI(url))
 }
