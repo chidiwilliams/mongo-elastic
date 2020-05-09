@@ -7,17 +7,21 @@ import (
 )
 
 type config struct {
-	MongoURL   string `yaml:"mongoURL"`
-	ElasticURL string `yaml:"elasticURL"`
-	Databases  []struct {
-		Name        string `yaml:"name"`
-		Collections []struct {
-			Name   string `yaml:"name"`
-			Fields []struct {
-				Name string `yaml:"name"`
-			} `yaml:"fields"`
-		} `yaml:"collections"`
-	} `yaml:"databases"`
+	MongoURL   string           `yaml:"mongoURL"`
+	ElasticURL string           `yaml:"elasticURL"`
+	Databases  []databaseConfig `yaml:"databases"`
+}
+
+type databaseConfig struct {
+	Name        string             `yaml:"name"`
+	Collections []collectionConfig `yaml:"collections"`
+}
+
+type collectionConfig struct {
+	Name   string `yaml:"name"`
+	Fields []struct {
+		Name string `yaml:"name"`
+	} `yaml:"fields"`
 }
 
 func parseConfig(filePath string, config *config) error {

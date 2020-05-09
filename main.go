@@ -12,40 +12,58 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+var defaultMongoDbNames = []string{"admin", "config", "local"}
+
+func isDefaultMongoDBName(s string) bool {
+	for _, name := range defaultMongoDbNames {
+		if name == s {
+			return true
+		}
+	}
+	return false
+}
+
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	configPtr := flag.String("config", "config.yaml", "Configuration file")
 	flag.Parse()
 
 	conf := config{}
-	err := parseConfig(*configPtr, &conf)
-	if err != nil {
-		log.Fatal(fmt.Errorf("error parsing config file: %w", err))
+	if err := parseConfig(*configPtr, &conf); err != nil {
+		return fmt.Errorf("error parsing config file: %w", err)
 	}
 
 	log.Println("config:", conf)
 
 	mongoClient, err := connectMongo(conf.MongoURL)
 	if err != nil {
-		log.Fatal(fmt.Errorf("error connecting to mongo: %w", err))
+		return fmt.Errorf("error connecting to mongo: %w", err)
 	}
 
 	log.Println("connected to mongoDB")
 
 	elasticClient, err := connectElastic(conf.ElasticURL)
 	if err != nil {
-		log.Fatal(fmt.Errorf("error connecting to elastic: %w", err))
+		return fmt.Errorf("error connecting to elastic: %w", err)
 	}
 
 	log.Println("connected to elastic")
 
-	_, _ = mongoClient, elasticClient
+	d := newDumper(mongoClient, elasticClient)
+	if err = d.dump(context.Background(), conf); err != nil {
+		return fmt.Errorf("error dumping from mongo to elastic: %w", err)
+	}
+
+	return nil
 }
 
 func connectElastic(url string) (*elastic.Client, error) {
-	return elastic.NewClient(
-		elastic.SetURL(url),
-		elastic.SetSniff(false),
-	)
+	return elastic.NewClient(elastic.SetURL(url), elastic.SetSniff(false))
 }
 
 func connectMongo(url string) (*mongo.Client, error) {
