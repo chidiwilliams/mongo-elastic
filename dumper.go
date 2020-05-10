@@ -10,6 +10,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/sync/errgroup"
+
+	"mongo-elastic/fields"
 )
 
 func newDumper(mongoClient *mongo.Client, elasticClient *elastic.Client) *dumper {
@@ -70,7 +72,7 @@ func (d *dumper) dump(ctx context.Context, config config) error {
 			})
 		}
 
-		log.Printf("completed indexing for database:%s\n", dbConf.Name)
+		log.Printf("completed indexing for database [%s]\n", dbConf.Name)
 	}
 
 	if err = d.errGroup.Wait(); err != nil {
@@ -84,7 +86,7 @@ func (d *dumper) dump(ctx context.Context, config config) error {
 // dumpCollection indexes all documents in the given collection to Elasticsearch.
 func (d *dumper) dumpCollection(ctx context.Context, coll *mongo.Collection, collConfig collectionConfig, dbConfig databaseConfig) error {
 	idxName := indexName(collConfig.Name, dbConfig.Name)
-	log.Printf("dumping collection:%s in database:%s to elastic index:%s", collConfig.Name, dbConfig.Name, idxName)
+	log.Printf("dumping collection [%s] in database [%s] to elastic index [%s]", collConfig.Name, dbConfig.Name, idxName)
 
 	idxExists, err := d.elasticClient.IndexExists(idxName).Do(ctx)
 	if err != nil {
@@ -92,14 +94,14 @@ func (d *dumper) dumpCollection(ctx context.Context, coll *mongo.Collection, col
 	}
 
 	if idxExists {
-		log.Printf("elastic index:%s already exists, skipping create", idxName)
+		log.Printf("elastic index [%s] already exists, skipping create", idxName)
 	} else {
-		log.Printf("elastic index:%s does not exist, creating", idxName)
+		log.Printf("elastic index [%s] does not exist, creating", idxName)
 		_, err = d.elasticClient.CreateIndex(idxName).Do(ctx)
 		if err != nil {
 			return err
 		}
-		log.Printf("elastic index:%s created", idxName)
+		log.Printf("elastic index [%s] created", idxName)
 	}
 
 	cursor, err := coll.Find(ctx, bson.D{})
@@ -107,7 +109,7 @@ func (d *dumper) dumpCollection(ctx context.Context, coll *mongo.Collection, col
 		return nil
 	}
 
-	defer printIfErr(cursor.Close(ctx))
+	defer func() { printIfErr(cursor.Close(ctx)) }()
 
 	var doc map[string]interface{}
 	for cursor.Next(ctx) {
@@ -117,11 +119,14 @@ func (d *dumper) dumpCollection(ctx context.Context, coll *mongo.Collection, col
 
 		id := doc["_id"].(primitive.ObjectID)
 
-		// [_id] is reserved as a metadata field in Elasticsearch and cannot be added to a document. Rename to [id].
+		// _id is reserved as a metadata field in Elasticsearch and cannot be added to a document. Rename to id.
 		doc["id"] = doc["_id"]
 		delete(doc, "_id")
 
-		// TODO: Include/exclude fields
+		doc, err = fields.Select(doc, collConfig.Fields)
+		if err != nil {
+			return fmt.Errorf("mapping document [%s]: %w", id.Hex(), err)
+		}
 
 		_, err = d.elasticClient.Index().
 			Index(idxName).Type(idxName).
@@ -130,10 +135,10 @@ func (d *dumper) dumpCollection(ctx context.Context, coll *mongo.Collection, col
 			return err
 		}
 
-		log.Printf("indexed document:%s\n", id.Hex())
+		log.Printf("indexed document [%s]\n", id.Hex())
 	}
 
-	log.Printf("completed indexing for collection:%s to index:%s\n", coll.Name(), idxName)
+	log.Printf("completed indexing for collection [%s] to index:%s\n", coll.Name(), idxName)
 	return nil
 }
 

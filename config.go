@@ -4,6 +4,8 @@ import (
 	"io/ioutil"
 
 	"gopkg.in/yaml.v2"
+
+	"mongo-elastic/fields"
 )
 
 type config struct {
@@ -18,10 +20,9 @@ type databaseConfig struct {
 }
 
 type collectionConfig struct {
-	Name   string `yaml:"name"`
-	Fields []struct {
-		Name string `yaml:"name"`
-	} `yaml:"fields"`
+	Name string `yaml:"name"`
+	// TODO: Validate field names input (dot-syntax)
+	Fields []fields.M `yaml:"fields"`
 }
 
 func parseConfig(filePath string, config *config) error {
