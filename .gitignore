@@ -14,8 +14,12 @@
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-config.yaml
+# Editor config
 .idea/
+
+# Program config files
+config.yml
+config.*.yml
 
 # Program binary
 mongo-elastic

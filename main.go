@@ -14,7 +14,7 @@ import (
 
 var defaultMongoDbNames = []string{"admin", "config", "local"}
 
-func isDefaultMongoDBName(s string) bool {
+func defaultMongoDBName(s string) bool {
 	for _, name := range defaultMongoDbNames {
 		if name == s {
 			return true
@@ -30,7 +30,7 @@ func main() {
 }
 
 func run() error {
-	configPtr := flag.String("config", "config.yaml", "Configuration file")
+	configPtr := flag.String("config", "config.yml", "Configuration file")
 	flag.Parse()
 
 	conf := config{}

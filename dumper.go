@@ -37,8 +37,12 @@ func (d *dumper) dump(ctx context.Context, config config) error {
 
 	databases := make(map[*mongo.Database]databaseConfig, len(listDatabasesResult.Databases))
 	for _, database := range listDatabasesResult.Databases {
-		if dbConf, ok := includedDBs[database.Name]; !isDefaultMongoDBName(database.Name) && (len(includedDBs) == 0 || ok) {
-			databases[d.mongoClient.Database(database.Name)] = dbConf
+		if !defaultMongoDBName(database.Name) {
+			if len(includedDBs) == 0 {
+				databases[d.mongoClient.Database(database.Name)] = databaseConfig{Name: database.Name}
+			} else if dbConf, ok := includedDBs[database.Name]; ok {
+				databases[d.mongoClient.Database(database.Name)] = dbConf
+			}
 		}
 	}
 
@@ -56,7 +60,9 @@ func (d *dumper) dump(ctx context.Context, config config) error {
 		}
 
 		for _, collectionName := range collectionNames {
-			if collConf, ok := includedCollections[collectionName]; len(includedCollections) == 0 || ok {
+			if len(includedCollections) == 0 {
+				collections[database.Collection(collectionName)] = collectionConfig{Name: collectionName}
+			} else if collConf, ok := includedCollections[collectionName]; ok {
 				collections[database.Collection(collectionName)] = collConf
 			}
 		}
@@ -111,22 +117,23 @@ func (d *dumper) dumpCollection(ctx context.Context, coll *mongo.Collection, col
 
 	defer func() { printIfErr(cursor.Close(ctx)) }()
 
-	var doc map[string]interface{}
 	for cursor.Next(ctx) {
+		var doc map[string]interface{}
 		if err = cursor.Decode(&doc); err != nil {
 			return err
 		}
 
+		// TODO: Handle non-ObjectID ids
 		id := doc["_id"].(primitive.ObjectID)
-
-		// _id is reserved as a metadata field in Elasticsearch and cannot be added to a document. Rename to id.
-		doc["id"] = doc["_id"]
-		delete(doc, "_id")
 
 		doc, err = fields.Select(doc, collConfig.Fields)
 		if err != nil {
 			return fmt.Errorf("mapping document [%s]: %w", id.Hex(), err)
 		}
+
+		// _id is reserved as a metadata field in Elasticsearch and cannot be added to a document. Rename to id.
+		doc["id"] = doc["_id"]
+		delete(doc, "_id")
 
 		_, err = d.elasticClient.Index().
 			Index(idxName).Type(idxName).
@@ -143,7 +150,7 @@ func (d *dumper) dumpCollection(ctx context.Context, coll *mongo.Collection, col
 }
 
 func indexName(collName, dbName string) string {
-	return fmt.Sprintf("%s.%s", collName, dbName)
+	return fmt.Sprintf("%s.%s", dbName, collName)
 }
 
 func printIfErr(err error) {

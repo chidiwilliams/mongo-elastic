@@ -30,7 +30,11 @@ func Select(doc map[string]interface{}, mappings []M) (map[string]interface{}, e
 		for i, field := range splitFields {
 			lastDocValAsMap, ok := lastDocVal.(map[string]interface{})
 			if !ok {
-				return nil, fmt.Errorf("unable to index field [%s], field [%s] is not a map", mapping.Name, strings.Join(splitFields[:i], "."))
+				return nil, fmt.Errorf(
+					"unable to index field [%s], field [%s] is not a map",
+					mapping.Name,
+					strings.Join(splitFields[:i], "."),
+				)
 			}
 
 			// At most nested field, save value at field to lastNewDocFieldMapPtr if it exists.
