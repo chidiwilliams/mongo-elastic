@@ -10,18 +10,10 @@ import (
 	"github.com/olivere/elastic"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"mongo-elastic/config"
+	"mongo-elastic/sync"
 )
-
-var defaultMongoDbNames = []string{"admin", "config", "local"}
-
-func defaultMongoDBName(s string) bool {
-	for _, name := range defaultMongoDbNames {
-		if name == s {
-			return true
-		}
-	}
-	return false
-}
 
 func main() {
 	if err := run(); err != nil {
@@ -33,30 +25,28 @@ func run() error {
 	configPtr := flag.String("config", "config.yml", "Configuration file")
 	flag.Parse()
 
-	conf := config{}
-	if err := parseConfig(*configPtr, &conf); err != nil {
-		return fmt.Errorf("error parsing config file: %w", err)
+	conf := config.Config{}
+	if err := config.FromYamlFile(*configPtr, &conf); err != nil {
+		return fmt.Errorf("parsing config file: %w", err)
 	}
-
-	log.Println("config:", conf)
 
 	mongoClient, err := connectMongo(conf.MongoURL)
 	if err != nil {
-		return fmt.Errorf("error connecting to mongo: %w", err)
+		return fmt.Errorf("connecting to mongo: %w", err)
 	}
 
 	log.Println("connected to mongoDB")
 
 	elasticClient, err := connectElastic(conf.ElasticURL)
 	if err != nil {
-		return fmt.Errorf("error connecting to elastic: %w", err)
+		return fmt.Errorf("connecting to elastic: %w", err)
 	}
 
 	log.Println("connected to elastic")
 
-	d := newDumper(mongoClient, elasticClient)
-	if err = d.dump(context.Background(), conf); err != nil {
-		return fmt.Errorf("error dumping from mongo to elastic: %w", err)
+	dumper := sync.NewDumper(mongoClient, elasticClient)
+	if err = dumper.Dump(context.Background(), config.SyncMapping{Databases: conf.Databases}); err != nil {
+		return fmt.Errorf("dumping from mongo to elastic: %w", err)
 	}
 
 	return nil

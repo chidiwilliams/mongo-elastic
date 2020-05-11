@@ -15,15 +15,19 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+const (
+	testConfigPath = "config.test.yml"
+)
+
 var (
 	mongoURL         = getEnvOrDefault("MONGO_URL", "mongodb://localhost:27017")
 	elasticSearchURL = getEnvOrDefault("ELASTICSEARCH_URL", "http://localhost:9200")
 )
 
-// db => collection => list of documents
+// map of db => collection => list of documents
 type dbSeed map[string]map[string][]interface{}
 
-// index => list of elastic docs
+// map of index => list of elastic docs
 type result map[string][]elasticDoc
 
 type elasticDoc struct {
@@ -85,6 +89,7 @@ elasticURL: %s
 					{"5eb6bd440b6bdf6514bb8442", d{"b": "2", "id": "5eb6bd440b6bdf6514bb8442"}}},
 			},
 		},
+		// TODO: Include DBs, collections, fields
 	}
 
 	for _, tc := range tests {
@@ -92,9 +97,10 @@ elasticURL: %s
 			seed(ctx, t, tc.seed, mongoClient)
 			defer reset(ctx, t, mongoClient, elasticClient)
 
-			fatalIfErr(t, ioutil.WriteFile("config.test.yml", []byte(tc.config), 0644))
+			fatalIfErr(t, ioutil.WriteFile(testConfigPath, []byte(tc.config), 0644))
 
-			os.Args = append(os.Args, "--config", "config.test.yml")
+			// Set CLI arguments
+			os.Args = append(os.Args, "--config", testConfigPath)
 
 			main()
 
@@ -120,7 +126,7 @@ func reset(ctx context.Context, t *testing.T, mongoClient *mongo.Client, elastic
 	dbs, err := mongoClient.ListDatabases(ctx, bson.D{})
 	fatalIfErr(t, err)
 	for _, db := range dbs.Databases {
-		if !defaultMongoDBName(db.Name) {
+		if db.Name != "admin" && db.Name != "config" && db.Name != "local" { // ignore default mongo dbs
 			fatalIfErr(t, mongoClient.Database(db.Name).Drop(ctx))
 		}
 	}

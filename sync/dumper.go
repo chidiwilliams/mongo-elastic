@@ -1,4 +1,4 @@
-package main
+package sync
 
 import (
 	"context"
@@ -11,22 +11,29 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/sync/errgroup"
 
+	"mongo-elastic/config"
 	"mongo-elastic/fields"
+	mongo2 "mongo-elastic/mongo"
 )
 
-func newDumper(mongoClient *mongo.Client, elasticClient *elastic.Client) *dumper {
+// NewDumper returns a new dumper.
+func NewDumper(mongoClient *mongo.Client, elasticClient *elastic.Client) *dumper {
 	return &dumper{mongoClient: mongoClient, elasticClient: elasticClient}
 }
 
+// dumper dumps documents from Mongo into Elasticsearch.
 type dumper struct {
 	mongoClient   *mongo.Client
 	elasticClient *elastic.Client
 	errGroup      errgroup.Group
 }
 
-func (d *dumper) dump(ctx context.Context, config config) error {
-	includedDBs := make(map[string]databaseConfig, len(config.Databases))
-	for _, database := range config.Databases {
+// Dump indexes documents in the Mongo databases according to the given config.
+// Each collection is indexed in a separate goroutine. The function waits for all
+// goroutines to complete and returns the first error from the goroutines, if any.
+func (d *dumper) Dump(ctx context.Context, syncMapping config.SyncMapping) error {
+	includedDBs := make(map[string]config.DatabaseMapping, len(syncMapping.Databases))
+	for _, database := range syncMapping.Databases {
 		includedDBs[database.Name] = database
 	}
 
@@ -35,22 +42,22 @@ func (d *dumper) dump(ctx context.Context, config config) error {
 		return err
 	}
 
-	databases := make(map[*mongo.Database]databaseConfig, len(listDatabasesResult.Databases))
+	databases := make(map[*mongo.Database]config.DatabaseMapping, len(listDatabasesResult.Databases))
 	for _, database := range listDatabasesResult.Databases {
-		if !defaultMongoDBName(database.Name) {
+		if !mongo2.IsSystemDB(database.Name) {
 			if len(includedDBs) == 0 {
-				databases[d.mongoClient.Database(database.Name)] = databaseConfig{Name: database.Name}
+				databases[d.mongoClient.Database(database.Name)] = config.DatabaseMapping{Name: database.Name}
 			} else if dbConf, ok := includedDBs[database.Name]; ok {
 				databases[d.mongoClient.Database(database.Name)] = dbConf
 			}
 		}
 	}
 
-	for database, dbConf := range databases {
-		collections := make(map[*mongo.Collection]collectionConfig)
+	for database, dbMapping := range databases {
+		collections := make(map[*mongo.Collection]config.CollectionMapping)
 
-		includedCollections := make(map[string]collectionConfig, len(dbConf.Collections))
-		for _, collection := range dbConf.Collections {
+		includedCollections := make(map[string]config.CollectionMapping, len(dbMapping.Collections))
+		for _, collection := range dbMapping.Collections {
 			includedCollections[collection.Name] = collection
 		}
 
@@ -61,38 +68,39 @@ func (d *dumper) dump(ctx context.Context, config config) error {
 
 		for _, collectionName := range collectionNames {
 			if len(includedCollections) == 0 {
-				collections[database.Collection(collectionName)] = collectionConfig{Name: collectionName}
+				collections[database.Collection(collectionName)] = config.CollectionMapping{Name: collectionName}
 			} else if collConf, ok := includedCollections[collectionName]; ok {
 				collections[database.Collection(collectionName)] = collConf
 			}
 		}
 
-		for coll, collConf := range collections {
+		for coll, collMapping := range collections {
 			// Evaluate variables for goroutine call.
 			// See: https://github.com/golang/go/wiki/CommonMistakes#using-goroutines-on-loop-iterator-variables
-			ctx, coll, collConf, dbConf := ctx, coll, collConf, dbConf
+			ctx, coll, collMapping, dbMapping := ctx, coll, collMapping, dbMapping
 
 			// Dump collection to an elastic index in a new goroutine.
 			d.errGroup.Go(func() error {
-				return d.dumpCollection(ctx, coll, collConf, dbConf)
+				if err = d.dumpCollection(ctx, coll, collMapping, dbMapping); err != nil {
+					return fmt.Errorf("indexing collection [%s]: %w", coll.Name(), err)
+				}
+				return nil
 			})
 		}
 
-		log.Printf("completed indexing for database [%s]\n", dbConf.Name)
+		log.Printf("completed indexing for database [%s]\n", dbMapping.Name)
 	}
 
-	if err = d.errGroup.Wait(); err != nil {
-		log.Fatal(err)
-	}
-
-	log.Println("completed indexing for all databases")
-	return nil
+	// Wait for all goroutines to complete, and return the first error
+	return d.errGroup.Wait()
 }
 
 // dumpCollection indexes all documents in the given collection to Elasticsearch.
-func (d *dumper) dumpCollection(ctx context.Context, coll *mongo.Collection, collConfig collectionConfig, dbConfig databaseConfig) error {
-	idxName := indexName(collConfig.Name, dbConfig.Name)
-	log.Printf("dumping collection [%s] in database [%s] to elastic index [%s]", collConfig.Name, dbConfig.Name, idxName)
+// It returns errors that occur while creating the index or getting a cursor.
+// TODO: If an error occurs wile indexing a document, it is returned through a provided channel and indexing continues.
+func (d *dumper) dumpCollection(ctx context.Context, coll *mongo.Collection, collMapping config.CollectionMapping, dbMapping config.DatabaseMapping) error {
+	idxName := indexName(collMapping.Name, dbMapping.Name)
+	log.Printf("dumping collection [%s] in database [%s] to elastic index [%s]", collMapping.Name, dbMapping.Name, idxName)
 
 	idxExists, err := d.elasticClient.IndexExists(idxName).Do(ctx)
 	if err != nil {
@@ -126,7 +134,7 @@ func (d *dumper) dumpCollection(ctx context.Context, coll *mongo.Collection, col
 		// TODO: Handle non-ObjectID ids
 		id := doc["_id"].(primitive.ObjectID)
 
-		doc, err = fields.Select(doc, collConfig.Fields)
+		doc, err = fields.Select(doc, collMapping.Fields)
 		if err != nil {
 			return fmt.Errorf("mapping document [%s]: %w", id.Hex(), err)
 		}
@@ -149,6 +157,7 @@ func (d *dumper) dumpCollection(ctx context.Context, coll *mongo.Collection, col
 	return nil
 }
 
+// indexName returns the Elasticsearch index name for the given Mongo collection and database.
 func indexName(collName, dbName string) string {
 	return fmt.Sprintf("%s.%s", dbName, collName)
 }
