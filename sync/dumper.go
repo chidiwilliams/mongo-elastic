@@ -11,9 +11,9 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/sync/errgroup"
 
-	"mongo-elastic/config"
-	"mongo-elastic/fields"
-	mongo2 "mongo-elastic/mongo"
+	"mongo-elastic-sync/config"
+	"mongo-elastic-sync/fields"
+	mongo2 "mongo-elastic-sync/mongo"
 )
 
 // NewDumper returns a new dumper.
@@ -153,7 +153,7 @@ func (d *dumper) dumpCollection(ctx context.Context, coll *mongo.Collection, col
 		log.Printf("indexed document [%s]\n", id.Hex())
 	}
 
-	log.Printf("completed indexing for collection [%s] to index:%s\n", coll.Name(), idxName)
+	log.Printf("completed indexing for collection [%s] to index [%s]\n", coll.Name(), idxName)
 	return nil
 }
 

@@ -114,7 +114,7 @@ elasticURL: %s
 					fatalIfErr(t, json.Unmarshal(b, &s))
 
 					if !reflect.DeepEqual(doc.source, s) {
-						t.Errorf("Expected document source to be %+v, got %+v (index:%s)", doc.source, s, idxName)
+						t.Errorf("Expected document source to be %+v, got %+v (index [%s])", doc.source, s, idxName)
 					}
 				}
 			}

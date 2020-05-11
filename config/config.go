@@ -5,7 +5,7 @@ import (
 
 	"gopkg.in/yaml.v2"
 
-	"mongo-elastic/fields"
+	"mongo-elastic-sync/fields"
 )
 
 type Config struct {

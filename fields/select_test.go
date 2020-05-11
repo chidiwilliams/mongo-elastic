@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"mongo-elastic/fields"
+	"mongo-elastic-sync/fields"
 )
 
 func TestSelect(t *testing.T) {

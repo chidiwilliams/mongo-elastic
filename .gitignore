@@ -22,4 +22,4 @@ config.yml
 config.*.yml
 
 # Program binary
-mongo-elastic
+mongo-elastic-sync

@@ -11,8 +11,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"mongo-elastic/config"
-	"mongo-elastic/sync"
+	"mongo-elastic-sync/config"
+	"mongo-elastic-sync/sync"
 )
 
 func main() {

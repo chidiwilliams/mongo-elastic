@@ -1,4 +1,4 @@
-module mongo-elastic
+module mongo-elastic-sync
 
 go 1.13
 
