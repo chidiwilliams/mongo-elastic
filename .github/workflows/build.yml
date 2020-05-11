@@ -1,0 +1,47 @@
+name: Build
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    services:
+      mongo:
+        image: mongo:4.0.18
+        ports:
+          - 27017/tcp
+      elasticsearch:
+        image: elasticsearch:6.8.8
+        options: -e="discovery.type=single-node" --health-cmd="curl http://localhost:9200/_cluster/health" --health-interval=10s --health-timeout=5s --health-retries=10
+        ports:
+          - 9200/tcp
+
+    steps:
+
+      - name: Set up Go 1.x
+        uses: actions/setup-go@v2
+        with:
+          go-version: ^1.13
+        id: go
+
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v2
+
+      - name: Get dependencies
+        run: go get -v -t -d ./...
+
+      - name: Build
+        run: go build -v .
+
+      - name: Test
+        run: go test -v .
+        env:
+          MONGO_URL: mongodb://localhost:${{ job.services.mongo.ports[27017] }}
+          ELASTICSEARCH_URL: http://localhost:${{ job.services.elasticsearch.ports[9200] }}
