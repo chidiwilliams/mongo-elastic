@@ -13,25 +13,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-    - name: Set up Go 1.x
-      uses: actions/setup-go@v2
-      with:
-        go-version: ^1.13
-      id: go
+      - name: Set up Go 1.x
+        uses: actions/setup-go@v2
+        with:
+          go-version: ^1.13
+        id: go
 
-    - name: Check out code into the Go module directory
-      uses: actions/checkout@v2
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v2
 
-    - name: Get dependencies
-      run: |
-        go get -v -t -d ./...
-        if [ -f Gopkg.toml ]; then
-            curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
-            dep ensure
-        fi
+      - name: Get dependencies
+        run: |
+          go get -v -t -d ./...
+          if [ -f Gopkg.toml ]; then
+              curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+              dep ensure
+          fi
 
-    - name: Build
-      run: go build -v .
+      - name: Build
+        run: go build -v .
 
-    - name: Test
-      run: go test -v .
+      - name: Test
+        run: go test -v .
+
+    services:
+      mongo:
+        image: mongo:4.0.18
+        ports:
+          - 27017:27017
+      elasticsearch:
+        image: elasticsearch:6.8.8
+        env:
+          ES_JAVA_OPTS: -Xms256m -Xmx256m
+        ports:
+          - 9200:9200
