@@ -14,6 +14,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+
+	"mongo-elastic-sync/syncer"
 )
 
 const (
@@ -116,7 +118,7 @@ elasticURL: %s
 				text := s.Text()
 				// Write to original stdout
 				_, _ = fmt.Fprintln(oldStdout, text)
-				if text == msgDumpingCompleted {
+				if text == syncer.MsgDumpingCompleted {
 					break
 				}
 			}
@@ -125,15 +127,15 @@ elasticURL: %s
 
 			for idxName, docs := range tc.result {
 				for _, doc := range docs {
-					r, err := elasticClient.Get().Index(idxName).Id(doc._id).Do(ctx)
+					resp, err := elasticClient.Get().Index(idxName).Id(doc._id).Do(ctx)
 					fatalIfErr(t, err)
 
-					b, _ := r.Source.MarshalJSON()
-					var s map[string]interface{}
-					fatalIfErr(t, json.Unmarshal(b, &s))
+					b, _ := resp.Source.MarshalJSON()
+					var src map[string]interface{}
+					fatalIfErr(t, json.Unmarshal(b, &src))
 
-					if !reflect.DeepEqual(doc.source, s) {
-						t.Errorf("Expected document source to be %+v, got %+v (index [%s])", doc.source, s, idxName)
+					if !reflect.DeepEqual(doc.source, src) {
+						t.Errorf("Expected document source to be %+v, got %+v (index [%s])", doc.source, src, idxName)
 					}
 				}
 			}
