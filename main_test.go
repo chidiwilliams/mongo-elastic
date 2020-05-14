@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,7 +21,7 @@ const (
 )
 
 var (
-	mongoURL         = getEnvOrDefault("MONGO_URL", "mongodb://localhost:27017")
+	mongoURL         = getEnvOrDefault("MONGO_URL", "mongodb://localhost:27011,localhost:27012,localhost:27013/?replicaSet=rs0&readPreference=primary")
 	elasticSearchURL = getEnvOrDefault("ELASTICSEARCH_URL", "http://localhost:9200")
 )
 
@@ -102,7 +103,25 @@ elasticURL: %s
 			// Set CLI arguments
 			os.Args = append(os.Args, "--config", testConfigPath)
 
-			main()
+			r, w, err := os.Pipe()
+			fatalIfErr(t, err)
+
+			oldStdout := os.Stdout
+			os.Stdout = w
+
+			go main()
+
+			s := bufio.NewScanner(r)
+			for s.Scan() {
+				text := s.Text()
+				// Write to original stdout
+				_, _ = fmt.Fprintln(oldStdout, text)
+				if text == msgDumpingCompleted {
+					break
+				}
+			}
+
+			os.Stdout = oldStdout
 
 			for idxName, docs := range tc.result {
 				for _, doc := range docs {

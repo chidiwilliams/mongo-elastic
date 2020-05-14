@@ -4,7 +4,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/olivere/elastic"
@@ -13,6 +15,10 @@ import (
 
 	"mongo-elastic-sync/config"
 	"mongo-elastic-sync/sync"
+)
+
+const (
+	msgDumpingCompleted = "Dumping completed, now tailing"
 )
 
 func main() {
@@ -44,9 +50,25 @@ func run() error {
 
 	log.Println("connected to elastic")
 
+	timeBeforeDump := time.Now().UTC().Unix()
+	if err = ioutil.WriteFile("changestream.timestamp", []byte(strconv.Itoa(int(timeBeforeDump))), 0644); err != nil {
+		return fmt.Errorf("writing changestream timestamp: %w", err)
+	}
+
+	log.Println("updated changestream.timestamp to", timeBeforeDump)
+
+	syncMapping := config.SyncMapping{Databases: conf.Databases}
+	ctx := context.Background()
+
 	dumper := sync.NewDumper(mongoClient, elasticClient)
-	if err = dumper.Dump(context.Background(), config.SyncMapping{Databases: conf.Databases}); err != nil {
+	if err = dumper.Dump(ctx, syncMapping); err != nil {
 		return fmt.Errorf("dumping from mongo to elastic: %w", err)
+	}
+
+	fmt.Println(msgDumpingCompleted)
+
+	if err = dumper.Tail(ctx, timeBeforeDump, syncMapping); err != nil {
+		return fmt.Errorf("tailing: %w", err)
 	}
 
 	return nil
