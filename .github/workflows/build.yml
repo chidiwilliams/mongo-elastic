@@ -42,6 +42,7 @@ jobs:
               ]
             }
           )"
+          curl localhost:9200
 
       - name: Test
         run: go test -v .
