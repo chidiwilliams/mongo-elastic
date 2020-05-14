@@ -40,7 +40,7 @@ type syncer struct {
 func (s *syncer) Sync(ctx context.Context, syncMapping config.SyncMapping) error {
 	timeBeforeDump := time.Now().UTC().Unix()
 
-	syncActions, err := s.syncActions(ctx, syncMapping)
+	collectionSyncCommands, err := s.collectionSyncCommands(ctx, syncMapping)
 	if err != nil {
 		return err
 	}
@@ -48,16 +48,16 @@ func (s *syncer) Sync(ctx context.Context, syncMapping config.SyncMapping) error
 	// Dump documents in the Mongo databases according to the given config.
 
 	var wg sync.WaitGroup
-	for _, action := range syncActions {
+	for _, collSyncCmd := range collectionSyncCommands {
 		wg.Add(1)
 
 		// Dump collection to an elastic index in a new goroutine.
-		go func(coll *mongo.Collection, collMapping config.CollectionMapping, dbMapping config.DatabaseMapping) {
+		go func(collSyncCmd collectionSyncCommand) {
 			defer wg.Done()
-			if err = s.dumpCollection(ctx, coll, collMapping, dbMapping); err != nil {
-				log.Println(fmt.Errorf("dumper died: collection [%s]: %w", coll.Name(), err))
+			if err = s.dumpCollection(ctx, collSyncCmd); err != nil {
+				log.Println(fmt.Errorf("dumper died: collection [%s]: %w", collSyncCmd.coll.Name(), err))
 			}
-		}(action.coll, action.collMapping, action.dbMapping)
+		}(collSyncCmd)
 	}
 
 	// TODO: Report indexing errors from dumping, wait in separate goroutine, then select for stop signal or error signal
@@ -68,12 +68,12 @@ func (s *syncer) Sync(ctx context.Context, syncMapping config.SyncMapping) error
 
 	// Tail Mongo change stream for each collection
 	indexErrs := make(chan error)
-	for _, action := range syncActions {
-		go func(action syncAction) {
-			if err = s.tailCollection(ctx, timeBeforeDump, action.coll, action.collMapping, action.dbMapping, indexErrs); err != nil {
-				log.Println(fmt.Errorf("tailer died: collection [%s]: %w", action.coll.Name(), err))
+	for _, collSyncCmd := range collectionSyncCommands {
+		go func(collSyncCmd collectionSyncCommand) {
+			if err = s.tailCollection(ctx, timeBeforeDump, collSyncCmd, indexErrs); err != nil {
+				log.Println(fmt.Errorf("tailer died: collection [%s]: %w", collSyncCmd.coll.Name(), err))
 			}
-		}(action)
+		}(collSyncCmd)
 	}
 
 	for {
@@ -87,9 +87,9 @@ func (s *syncer) Sync(ctx context.Context, syncMapping config.SyncMapping) error
 // dumpCollection indexes all documents in the given collection to Elasticsearch.
 // It returns errors that occur while creating the index or getting a cursor.
 // TODO: If an error occurs wile indexing a document, return through a provided error channel and continue indexing.
-func (s *syncer) dumpCollection(ctx context.Context, coll *mongo.Collection, collMapping config.CollectionMapping, dbMapping config.DatabaseMapping) error {
-	idxName := indexName(collMapping.Name, dbMapping.Name)
-	log.Printf("dumping collection [%s] in database [%s] to elastic index [%s]", collMapping.Name, dbMapping.Name, idxName)
+func (s *syncer) dumpCollection(ctx context.Context, cmd collectionSyncCommand) error {
+	idxName := indexName(cmd.collMapping.Name, cmd.dbMapping.Name)
+	log.Printf("dumping collection [%s] in database [%s] to elastic index [%s]", cmd.collMapping.Name, cmd.dbMapping.Name, idxName)
 
 	idxExists, err := s.elasticClient.IndexExists(idxName).Do(ctx)
 	if err != nil {
@@ -107,7 +107,7 @@ func (s *syncer) dumpCollection(ctx context.Context, coll *mongo.Collection, col
 		log.Printf("elastic index [%s] created", idxName)
 	}
 
-	cursor, err := coll.Find(ctx, bson.D{})
+	cursor, err := cmd.coll.Find(ctx, bson.D{})
 	if err != nil {
 		return nil
 	}
@@ -122,7 +122,7 @@ func (s *syncer) dumpCollection(ctx context.Context, coll *mongo.Collection, col
 				return err
 			}
 
-			return s.indexDocument(ctx, idxName, doc, collMapping.Fields)
+			return s.indexDocument(ctx, idxName, doc, cmd.collMapping.Fields)
 		}()
 		if err != nil {
 			// 	TODO: Chan
@@ -132,19 +132,19 @@ func (s *syncer) dumpCollection(ctx context.Context, coll *mongo.Collection, col
 		indexCount += 1
 	}
 
-	fmt.Printf("Indexed %d document(s) in collection [%s] to index [%s]\n", indexCount, coll.Name(), idxName)
+	fmt.Printf("Indexed %d document(s) in collection [%s] to index [%s]\n", indexCount, cmd.coll.Name(), idxName)
 	return nil
 }
 
 // tailCollection watches for changes on the given Mongo collection and updates the matching Elasticsearch index.
 // It returns an error if the change stream cursor cannot be obtained, but errors that occur while decoding or
 // indexing a single document are reported through indexErrs.
-func (s syncer) tailCollection(ctx context.Context, startUnix int64, coll *mongo.Collection, collMapping config.CollectionMapping, dbMapping config.DatabaseMapping, indexErrs chan<- error) error {
+func (s syncer) tailCollection(ctx context.Context, startUnix int64, cmd collectionSyncCommand, indexErrs chan<- error) error {
 	opts := options.ChangeStream().
 		SetFullDocument(options.UpdateLookup).
 		SetStartAtOperationTime(&primitive.Timestamp{T: uint32(startUnix)})
 
-	stream, err := coll.Watch(ctx, []bson.M{}, opts)
+	stream, err := cmd.coll.Watch(ctx, []bson.M{}, opts)
 	if err != nil {
 		return err
 	}
@@ -152,10 +152,10 @@ func (s syncer) tailCollection(ctx context.Context, startUnix int64, coll *mongo
 	defer func() { printIfErr(stream.Close(ctx)) }()
 
 	// TODO: Change logger to logrus
-	fmt.Printf("collection [%s]: listening for new events on collection\n", coll.Name())
+	fmt.Printf("collection [%s]: listening for new events on collection\n", cmd.coll.Name())
 
 	for {
-		fmt.Printf("collection [%s]: listening for next stream event\n", coll.Name())
+		fmt.Printf("collection [%s]: listening for next stream event\n", cmd.coll.Name())
 		if !stream.Next(ctx) {
 			// stream died, return deadline/cursor error
 			if ctx.Err() != nil {
@@ -166,14 +166,14 @@ func (s syncer) tailCollection(ctx context.Context, startUnix int64, coll *mongo
 
 		evt := mongo2.ChangeStreamEvent{}
 		if err = stream.Decode(&evt); err != nil {
-			indexErrs <- fmt.Errorf("collection [%s]: %w", coll.Name(), err)
+			indexErrs <- fmt.Errorf("collection [%s]: %w", cmd.coll.Name(), err)
 			continue
 		}
 
-		fmt.Printf("collection[%s]: received new stream event of type [%s]\n", coll.Name(), evt.OperationType)
+		fmt.Printf("collection[%s]: received new stream event of type [%s]\n", cmd.coll.Name(), evt.OperationType)
 
-		if err = s.handleStreamEvent(ctx, evt, collMapping, dbMapping); err != nil {
-			indexErrs <- fmt.Errorf("collection [%s]: %w", coll.Name(), err)
+		if err = s.handleStreamEvent(ctx, evt, cmd.collMapping, cmd.dbMapping); err != nil {
+			indexErrs <- fmt.Errorf("collection [%s]: %w", cmd.coll.Name(), err)
 			continue
 		}
 	}
@@ -185,9 +185,7 @@ func (s syncer) handleStreamEvent(ctx context.Context, evt mongo2.ChangeStreamEv
 
 	// TODO: Handle all other event types, as listed in: https://docs.mongodb.com/manual/reference/change-events/#change-stream-output
 	switch evt.OperationType {
-	case mongo2.ChangeStreamEventOperationTypeInsert,
-		mongo2.ChangeStreamEventOperationTypeReplace,
-		mongo2.ChangeStreamEventOperationTypeUpdate:
+	case mongo2.ChangeStreamEventOperationTypeInsert, mongo2.ChangeStreamEventOperationTypeReplace, mongo2.ChangeStreamEventOperationTypeUpdate:
 		return s.indexDocument(ctx, index, evt.FullDocument, collMapping.Fields)
 	case mongo2.ChangeStreamEventOperationTypeDelete:
 		return s.deleteDocument(ctx, index, evt.DocumentKey.ID.Hex())
@@ -218,14 +216,14 @@ func (s syncer) deleteDocument(ctx context.Context, index string, id string) err
 	return err
 }
 
-type syncAction struct {
+type collectionSyncCommand struct {
 	coll        *mongo.Collection
 	collMapping config.CollectionMapping
 	dbMapping   config.DatabaseMapping
 }
 
-func (s syncer) syncActions(ctx context.Context, syncMapping config.SyncMapping) ([]syncAction, error) {
-	actions := make([]syncAction, 0)
+func (s syncer) collectionSyncCommands(ctx context.Context, syncMapping config.SyncMapping) ([]collectionSyncCommand, error) {
+	collectionSyncCommands := make([]collectionSyncCommand, 0)
 
 	includedDBs := make(map[string]config.DatabaseMapping, len(syncMapping.Databases))
 	for _, database := range syncMapping.Databases {
@@ -270,11 +268,11 @@ func (s syncer) syncActions(ctx context.Context, syncMapping config.SyncMapping)
 		}
 
 		for coll, collMapping := range collections {
-			actions = append(actions, syncAction{coll: coll, collMapping: collMapping, dbMapping: dbMapping})
+			collectionSyncCommands = append(collectionSyncCommands, collectionSyncCommand{coll: coll, collMapping: collMapping, dbMapping: dbMapping})
 		}
 	}
 
-	return actions, nil
+	return collectionSyncCommands, nil
 }
 
 // indexName returns the Elasticsearch index name for the given Mongo collection and database.
