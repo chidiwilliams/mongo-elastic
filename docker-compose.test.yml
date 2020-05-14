@@ -4,9 +4,15 @@ services:
     image: elasticsearch:6.8.8
     ports:
       - 9200:9200
+    environment:
+      - discovery.type=single-node
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
   mongo1:
     hostname: mongo1
-    container_name: localmongo1
     image: mongo:4.0-xenial
     expose:
       - 27017
@@ -16,7 +22,6 @@ services:
     entrypoint: [ "/usr/bin/mongod", "--bind_ip_all", "--replSet", "rs0" ]
   mongo2:
     hostname: mongo2
-    container_name: localmongo2
     image: mongo:4.0-xenial
     expose:
       - 27017
@@ -26,7 +31,6 @@ services:
     entrypoint: [ "/usr/bin/mongod", "--bind_ip_all", "--replSet", "rs0" ]
   mongo3:
     hostname: mongo3
-    container_name: localmongo3
     image: mongo:4.0-xenial
     expose:
       - 27017

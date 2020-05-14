@@ -12,6 +12,13 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
 
+    services:
+      elasticsearch:
+        image: elasticsearch:6.8.8
+        options: -e="discovery.type=single-node" --health-cmd="curl http://localhost:9200/_cluster/health" --health-interval=10s --health-timeout=5s --health-retries=10
+        ports:
+          - "9200:9200"
+
     steps:
 
       - name: Set up Go 1.x
@@ -31,7 +38,7 @@ jobs:
 
       - name: Setup test dependencies
         run: |
-          docker-compose -f docker-compose.test.yml up -d
+          docker-compose -f docker-compose.test.yml up -d mongo1 mongo2 mongo3
           docker-compose -f docker-compose.test.yml exec -T mongo1 mongo --eval "rs.initiate(
             {
               _id : 'rs0',
