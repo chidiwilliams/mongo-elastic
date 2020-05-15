@@ -49,7 +49,11 @@ jobs:
               ]
             }
           )"
-          curl localhost:9200
+          sudo echo "127.0.0.1 mongo1
+          127.0.0.1 mongo2
+          127.0.0.1 mongo3" | sudo tee -a /etc/hosts
 
       - name: Test
         run: go test -v .
+        env:
+          MONGO_URL: mongodb://mongo1:27017,mongo2:27018,mongo3:27019/?replicaSet=rs0&readPreference=primary

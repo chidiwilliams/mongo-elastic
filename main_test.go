@@ -23,7 +23,7 @@ const (
 )
 
 var (
-	mongoURL         = getEnvOrDefault("MONGO_URL", "mongodb://localhost:27011,localhost:27012,localhost:27013/?replicaSet=rs0&readPreference=primary")
+	mongoURL         = getEnvOrDefault("MONGO_URL", "mongodb://localhost:27017,localhost:27018,localhost:27019/?replicaSet=rs0&readPreference=primary")
 	elasticSearchURL = getEnvOrDefault("ELASTICSEARCH_URL", "http://localhost:9200")
 )
 
