@@ -54,6 +54,9 @@ jobs:
           127.0.0.1 mongo3" | sudo tee -a /etc/hosts
 
       - name: Test
-        run: go test -v .
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic .
         env:
           MONGO_URL: mongodb://mongo1:27017,mongo2:27018,mongo3:27019/?replicaSet=rs0&readPreference=primary
+
+      - name: Upload coverage
+        run: bash <(curl -s https://codecov.io/bash)
