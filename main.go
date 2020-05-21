@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/olivere/elastic"
@@ -12,8 +11,11 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"mongo-elastic-sync/config"
+	"mongo-elastic-sync/logger"
 	"mongo-elastic-sync/syncer"
 )
+
+var log = logger.Log
 
 func main() {
 	if err := run(); err != nil {
@@ -35,14 +37,14 @@ func run() error {
 		return fmt.Errorf("connecting to mongo: %w", err)
 	}
 
-	log.Println("connected to mongoDB")
+	log.Info("Connected to MongoDB successfully")
 
 	elasticClient, err := connectElastic(conf.ElasticURL)
 	if err != nil {
 		return fmt.Errorf("connecting to elastic: %w", err)
 	}
 
-	log.Println("connected to elastic")
+	log.Info("Connected to Elasticsearch successfully")
 
 	ctx := context.Background()
 	syncMapping := config.SyncMapping{Databases: conf.Databases}

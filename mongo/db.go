@@ -12,3 +12,5 @@ func IsSystemDB(s string) bool {
 	}
 	return false
 }
+
+// TODO: IsSystemCollection?

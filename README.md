@@ -18,4 +18,4 @@ Stream Mongo to Elasticsearch. mongo-elastic-sync syncs data from MongoDB to Ela
 
 - [x] Initial Mongo dump
 
-- [ ] Tail change stream
+- [x] Tail change stream

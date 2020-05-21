@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/olivere/elastic"
@@ -118,7 +119,7 @@ elasticURL: %s
 				text := s.Text()
 				// Write to original stdout
 				_, _ = fmt.Fprintln(oldStdout, text)
-				if text == syncer.MsgDumpingCompleted {
+				if strings.Contains(text, syncer.MsgDumpingCompleted) {
 					break
 				}
 			}

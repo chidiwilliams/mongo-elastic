@@ -3,7 +3,6 @@ package syncer
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -15,12 +14,17 @@ import (
 
 	"mongo-elastic-sync/config"
 	"mongo-elastic-sync/fields"
+	"mongo-elastic-sync/logger"
 	mongo2 "mongo-elastic-sync/mongo"
 )
 
 const (
+	// MsgDumpingCompleted is the message printed out by the binary after dumping.
+	// I use this to track when to stop the dumping tests. Is there a better way?
 	MsgDumpingCompleted = "Dumping completed, now tailing"
 )
+
+var log = logger.Log
 
 // New returns a new syncer.
 func New(mongoClient *mongo.Client, elasticClient *elastic.Client) *syncer {
@@ -55,7 +59,7 @@ func (s *syncer) Sync(ctx context.Context, syncMapping config.SyncMapping) error
 		go func(collSyncCmd collectionSyncCommand) {
 			defer wg.Done()
 			if err = s.dumpCollection(ctx, collSyncCmd); err != nil {
-				log.Println(fmt.Errorf("dumper died: collection [%s]: %w", collSyncCmd.coll.Name(), err))
+				log.With("collection", collSyncCmd.coll.Name()).Errorf("Dumper died: %+v", err)
 			}
 		}(collSyncCmd)
 	}
@@ -71,7 +75,7 @@ func (s *syncer) Sync(ctx context.Context, syncMapping config.SyncMapping) error
 	for _, collSyncCmd := range collectionSyncCommands {
 		go func(collSyncCmd collectionSyncCommand) {
 			if err = s.tailCollection(ctx, timeBeforeDump, collSyncCmd, indexErrs); err != nil {
-				log.Println(fmt.Errorf("tailer died: collection [%s]: %w", collSyncCmd.coll.Name(), err))
+				log.With("collection", collSyncCmd.coll.Name()).Errorf("Tailer died: %+v", err)
 			}
 		}(collSyncCmd)
 	}
@@ -79,7 +83,7 @@ func (s *syncer) Sync(ctx context.Context, syncMapping config.SyncMapping) error
 	for {
 		select {
 		case err = <-indexErrs:
-			log.Print(fmt.Errorf("tail error: %w", err))
+			log.Errorf("Tailing error: %w", err)
 		}
 	}
 }
@@ -89,7 +93,10 @@ func (s *syncer) Sync(ctx context.Context, syncMapping config.SyncMapping) error
 // TODO: If an error occurs wile indexing a document, return through a provided error channel and continue indexing.
 func (s *syncer) dumpCollection(ctx context.Context, cmd collectionSyncCommand) error {
 	idxName := indexName(cmd.collMapping.Name, cmd.dbMapping.Name)
-	log.Printf("dumping collection [%s] in database [%s] to elastic index [%s]", cmd.collMapping.Name, cmd.dbMapping.Name, idxName)
+
+	log := log.With("collection", cmd.collMapping.Name, "database", cmd.dbMapping.Name, "index", idxName)
+
+	log.Infof("Starting dump")
 
 	idxExists, err := s.elasticClient.IndexExists(idxName).Do(ctx)
 	if err != nil {
@@ -97,14 +104,14 @@ func (s *syncer) dumpCollection(ctx context.Context, cmd collectionSyncCommand) 
 	}
 
 	if idxExists {
-		log.Printf("elastic index [%s] already exists, skipping create", idxName)
+		log.Info("Index already exists, skipping create")
 	} else {
-		log.Printf("elastic index [%s] does not exist, creating", idxName)
+		log.Info("Index does not exist, creating")
 		_, err = s.elasticClient.CreateIndex(idxName).Do(ctx)
 		if err != nil {
 			return err
 		}
-		log.Printf("elastic index [%s] created", idxName)
+		log.Info("Index created")
 	}
 
 	cursor, err := cmd.coll.Find(ctx, bson.D{})
@@ -112,7 +119,7 @@ func (s *syncer) dumpCollection(ctx context.Context, cmd collectionSyncCommand) 
 		return nil
 	}
 
-	defer func() { printIfErr(cursor.Close(ctx)) }()
+	defer func() { logIfErr(cursor.Close(ctx)) }()
 
 	indexCount := 0
 	for cursor.Next(ctx) {
@@ -132,7 +139,7 @@ func (s *syncer) dumpCollection(ctx context.Context, cmd collectionSyncCommand) 
 		indexCount += 1
 	}
 
-	fmt.Printf("Indexed %d document(s) in collection [%s] to index [%s]\n", indexCount, cmd.coll.Name(), idxName)
+	log.Infof("Completed dump, count=%v", indexCount)
 	return nil
 }
 
@@ -149,13 +156,21 @@ func (s syncer) tailCollection(ctx context.Context, startUnix int64, cmd collect
 		return err
 	}
 
-	defer func() { printIfErr(stream.Close(ctx)) }()
+	defer func() { logIfErr(stream.Close(ctx)) }()
 
-	// TODO: Change logger to logrus
-	fmt.Printf("collection [%s]: listening for new events on collection\n", cmd.coll.Name())
+	index := indexName(cmd.collMapping.Name, cmd.dbMapping.Name)
+
+	log := log.With(
+		"collection", cmd.collMapping.Name,
+		"database", cmd.dbMapping.Name,
+		"index", index,
+		"action", "tailing",
+	)
+
+	log.Info("Listening for new events")
 
 	for {
-		fmt.Printf("collection [%s]: listening for next stream event\n", cmd.coll.Name())
+		log.Info("Listening for next stream event")
 		if !stream.Next(ctx) {
 			// stream died, return deadline/cursor error
 			if ctx.Err() != nil {
@@ -170,9 +185,9 @@ func (s syncer) tailCollection(ctx context.Context, startUnix int64, cmd collect
 			continue
 		}
 
-		fmt.Printf("collection[%s]: received new stream event of type [%s]\n", cmd.coll.Name(), evt.OperationType)
+		log.With("eventType", evt.OperationType).Info("Received new stream event")
 
-		if err = s.handleStreamEvent(ctx, evt, cmd.collMapping, cmd.dbMapping); err != nil {
+		if err = s.handleStreamEvent(ctx, evt, cmd.collMapping, index); err != nil {
 			indexErrs <- fmt.Errorf("collection [%s]: %w", cmd.coll.Name(), err)
 			continue
 		}
@@ -180,8 +195,7 @@ func (s syncer) tailCollection(ctx context.Context, startUnix int64, cmd collect
 }
 
 // handleStreamEvent performs an action corresponding to the operation type of the change stream event.
-func (s syncer) handleStreamEvent(ctx context.Context, evt mongo2.ChangeStreamEvent, collMapping config.CollectionMapping, dbMapping config.DatabaseMapping) error {
-	index := indexName(collMapping.Name, dbMapping.Name)
+func (s syncer) handleStreamEvent(ctx context.Context, evt mongo2.ChangeStreamEvent, collMapping config.CollectionMapping, index string) error {
 
 	// TODO: Handle all other event types, as listed in: https://docs.mongodb.com/manual/reference/change-events/#change-stream-output
 	switch evt.OperationType {
@@ -280,8 +294,8 @@ func indexName(collName, dbName string) string {
 	return fmt.Sprintf("%s.%s", dbName, collName)
 }
 
-func printIfErr(err error) {
+func logIfErr(err error) {
 	if err != nil {
-		log.Println(err)
+		log.Error(err)
 	}
 }
