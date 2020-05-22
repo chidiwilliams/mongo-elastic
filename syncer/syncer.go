@@ -58,7 +58,7 @@ func (s *syncer) Sync(ctx context.Context, syncMapping config.SyncMapping) error
 		// Dump collection to an elastic index in a new goroutine.
 		go func(collSyncCmd collectionSyncCommand) {
 			defer wg.Done()
-			if err = s.dumpCollection(ctx, collSyncCmd); err != nil {
+			if err := s.dumpCollection(ctx, collSyncCmd); err != nil {
 				log.With("collection", collSyncCmd.coll.Name()).Errorf("Dumper died: %+v", err)
 			}
 		}(collSyncCmd)
@@ -74,7 +74,7 @@ func (s *syncer) Sync(ctx context.Context, syncMapping config.SyncMapping) error
 	indexErrs := make(chan error)
 	for _, collSyncCmd := range collectionSyncCommands {
 		go func(collSyncCmd collectionSyncCommand) {
-			if err = s.tailCollection(ctx, timeBeforeDump, collSyncCmd, indexErrs); err != nil {
+			if err := s.tailCollection(ctx, timeBeforeDump, collSyncCmd, indexErrs); err != nil {
 				log.With("collection", collSyncCmd.coll.Name()).Errorf("Tailer died: %+v", err)
 			}
 		}(collSyncCmd)
@@ -107,8 +107,7 @@ func (s *syncer) dumpCollection(ctx context.Context, cmd collectionSyncCommand) 
 		log.Info("Index already exists, skipping create")
 	} else {
 		log.Info("Index does not exist, creating")
-		_, err = s.elasticClient.CreateIndex(idxName).Do(ctx)
-		if err != nil {
+		if _, err := s.elasticClient.CreateIndex(idxName).Do(ctx); err != nil {
 			return err
 		}
 		log.Info("Index created")
