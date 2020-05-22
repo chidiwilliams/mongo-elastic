@@ -1,3 +1,4 @@
+# Initiate replica set
 docker-compose -f docker-compose.test.yml exec -T mongo1 mongo --eval "rs.initiate(
   {
     _id : 'rs0',
@@ -9,6 +10,7 @@ docker-compose -f docker-compose.test.yml exec -T mongo1 mongo --eval "rs.initia
   }
 )"
 
-#sudo echo "127.0.0.1 mongo1
-#127.0.0.1 mongo2
-#127.0.0.1 mongo3" | sudo tee -a /etc/hosts
+# Resolve container hostnames to localhost. Only needs to be done once.
+# sudo echo "127.0.0.1 mongo1
+# 127.0.0.1 mongo2
+# 127.0.0.1 mongo3" | sudo tee -a /etc/hosts
