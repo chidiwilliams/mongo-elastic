@@ -1,3 +1,5 @@
+**[ARCHIVED]** - I started this project because, at the time, I couldn't find a daemon to sync Mongo v4 and Elasticsearch v6. I've found [monstache](https://github.com/rwynn/monstache) now. (Glad it's written in Go, too 😉)
+
 # mongo-elastic-sync
 
 [![Build status](https://github.com/chidiwilliams/mongo-elastic-sync/workflows/Build/badge.svg)](https://github.com/chidiwilliams/mongo-elastic-sync/actions?query=workflow%3ABuild) [![codecov](https://codecov.io/gh/chidiwilliams/mongo-elastic-sync/branch/master/graph/badge.svg)](https://codecov.io/gh/chidiwilliams/mongo-elastic-sync)
